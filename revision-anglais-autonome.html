@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Révision Anglais</title>
+<style>
+  :root{
+    --bg:#fdf6fb;
+    --card:#ffffff;
+    --accent:#c9b6f2;
+    --accent-dark:#8f7cc7;
+    --good:#a8ddc0;
+    --good-dark:#4f9b6e;
+    --bad:#ffb3ba;
+    --bad-dark:#d16b74;
+    --text:#5b5470;
+    --muted:#a89fc0;
+  }
+  * { box-sizing:border-box; }
+  body{
+    margin:0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: linear-gradient(135deg,#fdeff9,#eef2ff,#f0fbf6);
+    color:var(--text);
+    min-height:100vh;
+    padding:20px;
+  }
+  .app{ max-width:640px; margin:0 auto; }
+  header{ text-align:center; margin-bottom:20px; }
+  header h1{ font-size:1.6rem; margin:0 0 4px; }
+  header p{ color:var(--muted); margin:0; font-size:0.9rem;}
+  nav{ display:flex; gap:8px; margin-bottom:20px; }
+  nav button{
+    flex:1; padding:10px; border:none; border-radius:10px;
+    background:#ffffffaa; color:var(--muted); cursor:pointer;
+    font-size:0.9rem; transition: all .2s;
+    box-shadow:0 2px 6px rgba(180,160,220,.15);
+  }
+  nav button.active{ background:var(--accent); color:#ffffff; font-weight:600; }
+  .card{
+    background:var(--card); border-radius:20px; padding:24px;
+    box-shadow:0 8px 24px rgba(190,170,220,.25);
+  }
+  .fr-sentence{ font-size:1.3rem; font-weight:600; margin-bottom:16px; line-height:1.4; color:#4a4460; }
+  input[type=text]{
+    width:100%; padding:12px; border-radius:12px; border:1px solid #e8dff5;
+    background:#fbf8ff; color:var(--text); font-size:1rem; margin-bottom:12px;
+  }
+  input[type=text]:focus{ outline:none; border-color:var(--accent); }
+  textarea{
+    width:100%; padding:12px; border-radius:12px; border:1px solid #e8dff5;
+    background:#fbf8ff; color:var(--text); font-size:0.9rem; margin-bottom:12px;
+    font-family:inherit; resize:vertical;
+  }
+  textarea:focus{ outline:none; border-color:var(--accent); }
+  textarea::placeholder{ color:#c7bfe0; font-style:italic; }
+  hr{ border:none; border-top:1px solid #f0e9fb; margin:24px 0; }
+  h3{ font-size:1rem; margin:0 0 4px; color:var(--text); }
+  .hint{ color:var(--muted); font-size:0.8rem; margin:0 0 12px; }
+  button.primary{
+    background:var(--accent); color:#ffffff; border:none; padding:12px 20px;
+    border-radius:12px; font-weight:600; cursor:pointer; font-size:1rem;
+    box-shadow:0 4px 12px rgba(201,182,242,.5);
+  }
+  button.primary:hover{ background:var(--accent-dark); }
+  button.secondary{
+    background:#fbf8ff; color:var(--accent-dark); border:1px solid #e8dff5;
+    padding:12px 18px; border-radius:12px; font-weight:600; cursor:pointer; font-size:0.9rem;
+  }
+  button.secondary:hover{ background:#f3ecfd; }
+  .feedback{ padding:14px; border-radius:12px; margin:12px 0; font-size:0.95rem;}
+  .feedback.good{ background:#eafaf1; border:1px solid var(--good); color:var(--good-dark); }
+  .feedback.bad{ background:#fff0f1; border:1px solid var(--bad); color:var(--bad-dark); }
+  .row{ display:flex; gap:10px; margin-top:14px; }
+  .stat{ display:flex; justify-content:space-between; color:var(--muted); font-size:0.85rem; margin-bottom:16px;}
+  table{ width:100%; border-collapse:collapse; font-size:0.85rem; }
+  th,td{ text-align:left; padding:8px; border-bottom:1px solid #f0e9fb; }
+  th{ color:var(--muted); font-weight:500; }
+  .del{ color:var(--bad-dark); cursor:pointer; background:none; border:none; font-size:1rem;}
+  .empty{ text-align:center; color:var(--muted); padding:40px 0; }
+  .badge{ display:inline-block; padding:2px 8px; border-radius:6px; font-size:0.75rem; }
+  .badge.due{ background:#efe7fc; color:var(--accent-dark);}
+  .badge.mastered{ background:#eafaf1; color:var(--good-dark); }
+  .loading{ text-align:center; color:var(--muted); padding:40px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>🇬🇧 Révision Anglais</h1>
+    <p>Traduis chaque phrase, on gère les révisions pour toi</p>
+  </header>
+  <nav>
+    <button id="nav-review" class="active">Réviser</button>
+    <button id="nav-add">Ajouter</button>
+    <button id="nav-list">Mes phrases</button>
+  </nav>
+  <div id="content" class="card"><div class="loading">Chargement...</div></div>
+</div>
+
+<script>
+
+const API_URL = "https://script.google.com/macros/s/AKfycbznQnxdhlsX9sui-txJ25mg9UQcY7y58pMPjpGNQLzSHTrDmZHPu9_kNrrisS7sEmr33A/exec";
+
+let sentences = [];
+let currentView = 'review';
+let reviewQueue = [];
+let reviewIndex = 0;
+let currentAnswered = false;
+
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function addDays(dateStr, days){
+  const d = new Date(dateStr+'T00:00:00');
+  d.setDate(d.getDate()+days);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function normalize(s){
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^\w\s']/g,'')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+async function apiGet(params){
+  const url = new URL(API_URL);
+  Object.keys(params).forEach(k => url.searchParams.set(k, params[k]));
+  const res = await fetch(url.toString());
+  return await res.json();
+}
+async function apiPost(payload){
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(payload)
+  });
+  return await res.json();
+}
+
+async function loadSentences(){
+  const data = await apiGet({action:'list'});
+  sentences = Array.isArray(data) ? data : [];
+}
+
+function setNav(view){
+  currentView = view;
+  document.getElementById('nav-review').classList.toggle('active', view==='review');
+  document.getElementById('nav-add').classList.toggle('active', view==='add');
+  document.getElementById('nav-list').classList.toggle('active', view==='list');
+  render();
+}
+document.getElementById('nav-review').onclick = ()=>setNav('review');
+document.getElementById('nav-add').onclick = ()=>setNav('add');
+document.getElementById('nav-list').onclick = ()=>setNav('list');
+
+function render(){
+  const content = document.getElementById('content');
+  if(currentView==='review') renderReview(content);
+  else if(currentView==='add') renderAdd(content);
+  else renderList(content);
+}
+
+function buildReviewQueue(){
+  const today = todayStr();
+  reviewQueue = sentences.filter(s => s.nextReview <= today);
+  reviewIndex = 0;
+  currentAnswered = false;
+}
+
+function renderReview(content){
+  buildReviewQueue();
+  if(reviewQueue.length===0){
+    const upcoming = sentences.filter(s=>s.nextReview > todayStr())
+      .sort((a,b)=>a.nextReview.localeCompare(b.nextReview))[0];
+    content.innerHTML = `
+      <div class="empty">
+        🎉 Rien à réviser aujourd'hui !<br>
+        ${sentences.length===0 ? "Ajoute ta première phrase depuis l'onglet \"Ajouter\"." :
+          upcoming ? `Prochaine révision le ${upcoming.nextReview}.` : ''}
+      </div>`;
+    return;
+  }
+  renderReviewCard(content);
+}
+
+function renderReviewCard(content){
+  const item = reviewQueue[reviewIndex];
+  content.innerHTML = `
+    <div class="stat"><span>Phrase ${reviewIndex+1} / ${reviewQueue.length}</span><span>À réviser aujourd'hui</span></div>
+    <div class="fr-sentence">${escapeHtml(item.fr)}</div>
+    <input type="text" id="answer-input" placeholder="Écris la traduction en anglais..." autocomplete="off">
+    <div id="feedback-zone"></div>
+    <div class="row">
+      <button class="primary" id="check-btn">Vérifier</button>
+    </div>
+  `;
+  const input = document.getElementById('answer-input');
+  input.focus();
+  input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !currentAnswered) checkAnswer(item); });
+  document.getElementById('check-btn').onclick = ()=>checkAnswer(item);
+}
+
+async function checkAnswer(item){
+  if(currentAnswered) return;
+  currentAnswered = true;
+  const input = document.getElementById('answer-input');
+  const userAnswer = input.value;
+  const isCorrect = normalize(userAnswer) === normalize(item.en);
+  input.disabled = true;
+
+  let delayMsg;
+  if(isCorrect){
+    item.correctStreak = (item.correctStreak || 0) + 1;
+    if(item.correctStreak >= 5){
+      item.nextReview = addDays(todayStr(), 30);
+      delayMsg = "🌟 5 fois sans erreur, phrase maîtrisée ! Prochaine révision dans 30 jours.";
+    } else {
+      item.nextReview = addDays(todayStr(), 10);
+      delayMsg = `✅ Correct ! Prochaine révision dans 10 jours (${item.correctStreak}/5 pour passer à 30 jours).`;
+    }
+  } else {
+    item.correctStreak = 0;
+    item.nextReview = addDays(todayStr(), 1);
+  }
+  item.lastReviewed = todayStr();
+
+  try{
+    await apiPost({action:'update', id:item.id, nextReview:item.nextReview, correctStreak:item.correctStreak, lastReviewed:item.lastReviewed});
+  }catch(e){ /* on garde quand même la mise à jour locale */ }
+
+  const feedbackZone = document.getElementById('feedback-zone');
+  feedbackZone.innerHTML = `
+    <div class="feedback ${isCorrect?'good':'bad'}">
+      ${isCorrect ? delayMsg :
+        `❌ Pas tout à fait. Réponse attendue : "${escapeHtml(item.en)}"<br>Cette phrase revient demain.`}
+    </div>
+  `;
+  const row = document.querySelector('.row');
+  row.innerHTML = `<button class="primary" id="next-btn">${reviewIndex+1 < reviewQueue.length ? 'Phrase suivante' : 'Terminer'}</button>`;
+  document.getElementById('next-btn').onclick = ()=>{
+    reviewIndex++;
+    currentAnswered = false;
+    if(reviewIndex >= reviewQueue.length){
+      renderReview(document.getElementById('content'));
+    } else {
+      renderReviewCard(document.getElementById('content'));
+    }
+  };
+}
+
+function renderAdd(content){
+  content.innerHTML = `
+    <div class="stat"><span>Nouvelle phrase</span><span>${sentences.length} au total</span></div>
+    <input type="text" id="fr-input" placeholder="Phrase en français">
+    <input type="text" id="en-input" placeholder="Traduction correcte en anglais">
+    <div id="add-feedback"></div>
+    <button class="primary" id="add-btn">Ajouter</button>
+
+    <hr>
+    <h3>Import en masse</h3>
+    <p class="hint">Une phrase par ligne : français, une tabulation (ou " | "), puis l'anglais.</p>
+    <textarea id="bulk-input" rows="6" placeholder="Il y avait beaucoup d'activités.	There were many activities.
+Comme un mini-supermarché...	Like a mini supermarket..."></textarea>
+    <div id="bulk-feedback"></div>
+    <button class="primary" id="bulk-btn">Importer toutes les phrases</button>
+  `;
+  document.getElementById('add-btn').onclick = async ()=>{
+    const fr = document.getElementById('fr-input').value.trim();
+    const en = document.getElementById('en-input').value.trim();
+    const feedback = document.getElementById('add-feedback');
+    if(!fr || !en){
+      feedback.innerHTML = `<div class="feedback bad">Merci de remplir les deux champs.</div>`;
+      return;
+    }
+    feedback.innerHTML = `<div class="feedback good">Ajout en cours...</div>`;
+    try{
+      const created = await apiPost({action:'add', fr, en});
+      sentences.push(created);
+      feedback.innerHTML = `<div class="feedback good">Ajoutée ! Elle est disponible dès aujourd'hui en révision.</div>`;
+      document.getElementById('fr-input').value='';
+      document.getElementById('en-input').value='';
+      document.getElementById('fr-input').focus();
+    }catch(e){
+      feedback.innerHTML = `<div class="feedback bad">Erreur de connexion au Google Sheet. Vérifie l'URL API_URL et ta connexion internet.</div>`;
+    }
+  };
+
+  document.getElementById('bulk-btn').onclick = async ()=>{
+    const raw = document.getElementById('bulk-input').value;
+    const feedback = document.getElementById('bulk-feedback');
+    const lines = raw.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+    const items = [];
+    let skipped = 0;
+    lines.forEach(line=>{
+      let parts;
+      if(line.includes('\t')) parts = line.split('\t');
+      else if(line.includes(' | ')) parts = line.split(' | ');
+      else { skipped++; return; }
+      const fr = parts[0].trim();
+      const en = parts.slice(1).join(' ').trim();
+      if(!fr || !en){ skipped++; return; }
+      items.push({fr, en});
+    });
+    if(items.length===0){
+      feedback.innerHTML = `<div class="feedback bad">Aucune ligne reconnue. Vérifie le format.</div>`;
+      return;
+    }
+    feedback.innerHTML = `<div class="feedback good">Import en cours...</div>`;
+    try{
+      const created = await apiPost({action:'bulkAdd', items});
+      sentences = sentences.concat(created);
+      feedback.innerHTML = `<div class="feedback good">${created.length} phrase(s) importée(s)${skipped>0 ? `, ${skipped} ligne(s) ignorée(s)` : ''}.</div>`;
+      document.getElementById('bulk-input').value = '';
+    }catch(e){
+      feedback.innerHTML = `<div class="feedback bad">Erreur de connexion au Google Sheet.</div>`;
+    }
+  };
+}
+
+function renderList(content){
+  const today = todayStr();
+  const sorted = [...sentences].sort((a,b)=>a.nextReview.localeCompare(b.nextReview));
+  const rows = sorted.map(s=>`
+    <tr>
+      <td>${escapeHtml(s.fr)}${(s.correctStreak||0)>=5 ? ' <span class="badge mastered">maîtrisée</span>' : ''}</td>
+      <td>${escapeHtml(s.en)}</td>
+      <td>${s.nextReview<=today ? "<span class=\"badge due\">Aujourd'hui</span>" : s.nextReview}</td>
+      <td><button class="del" data-id="${s.id}">✕</button></td>
+    </tr>
+  `).join('');
+  content.innerHTML = `
+    ${sentences.length===0 ? '<div class="empty">Aucune phrase enregistrée pour le moment.</div>' : `
+    <div class="stat"><span>${sentences.length} phrase(s)</span><span>${sentences.filter(s=>s.nextReview<=today).length} à réviser aujourd'hui</span></div>
+    <table>
+      <thead><tr><th>Français</th><th>Anglais</th><th>Prochaine révision</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    `}
+    <hr>
+    <h3>Sauvegarde (optionnelle)</h3>
+    <p class="hint">Vos phrases vivent déjà dans votre Google Sheet. Vous pouvez en plus exporter une copie .csv si vous le souhaitez.</p>
+    <div class="row">
+      <button class="secondary" id="export-btn">📥 Exporter en Excel (.csv)</button>
+    </div>
+  `;
+  content.querySelectorAll('.del').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.getAttribute('data-id');
+      try{
+        await apiPost({action:'delete', id});
+        sentences = sentences.filter(s=>s.id!==id);
+        renderList(document.getElementById('content'));
+      }catch(e){
+        alert("Erreur de connexion, la phrase n'a pas été supprimée.");
+      }
+    };
+  });
+  const exportBtn = document.getElementById('export-btn');
+  if(exportBtn){
+    exportBtn.onclick = ()=>{
+      const csv = toCSV(sentences);
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `revision-anglais-sauvegarde-${todayStr()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+  }
+}
+
+function csvEscape(v){
+  return '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+}
+function toCSV(list){
+  const header = ['Français','Anglais','ProchaineRevision','SerieCorrecte','DerniereRevision','DateAjout'];
+  const lines = [header.map(csvEscape).join(';')];
+  list.forEach(s=>{
+    lines.push([s.fr, s.en, s.nextReview, s.correctStreak||0, s.lastReviewed||'', s.created||''].map(csvEscape).join(';'));
+  });
+  return '\uFEFF' + lines.join('\r\n');
+}
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+(async function init(){
+  if(!API_URL || API_URL.indexOf('COLLEZ_VOTRE_URL_ICI') !== -1){
+    document.getElementById('content').innerHTML = `
+      <div class="empty">
+        ⚠️ Il manque une étape !<br><br>
+        Ouvre ce fichier avec un éditeur de texte, cherche la ligne <code>const API_URL = ...</code>
+        tout en haut du script, et remplace le texte entre guillemets par l'URL de ton déploiement Google Apps Script.
+      </div>`;
+    return;
+  }
+  try{
+    await loadSentences();
+    render();
+  }catch(e){
+    document.getElementById('content').innerHTML = `
+      <div class="empty">
+        ⚠️ Impossible de contacter ton Google Sheet.<br>
+        Vérifie ta connexion internet et que l'URL API_URL est correcte.
+      </div>`;
+  }
+})();
+</script>
+</body>
+</html>
