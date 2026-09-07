@@ -133,13 +133,15 @@ async function apiGet(params){
   const res = await fetch(url.toString());
   return await res.json();
 }
-async function apiPost(payload){
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    headers: {'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(payload)
-  });
-  return await res.json();
+async function bulkAddChunked(items){
+  const chunkSize = 8;
+  let created = [];
+  for(let i=0; i<items.length; i+=chunkSize){
+    const chunk = items.slice(i, i+chunkSize);
+    const res = await apiGet({action:'bulkAdd', data: JSON.stringify(chunk)});
+    created = created.concat(res);
+  }
+  return created;
 }
 
 async function loadSentences(){
@@ -230,7 +232,7 @@ async function checkAnswer(item){
   item.lastReviewed = todayStr();
 
   try{
-    await apiPost({action:'update', id:item.id, nextReview:item.nextReview, correctStreak:item.correctStreak, lastReviewed:item.lastReviewed});
+    await apiGet({action:'update', id:item.id, nextReview:item.nextReview, correctStreak:item.correctStreak, lastReviewed:item.lastReviewed});
   }catch(e){ /* on garde quand même la mise à jour locale */ }
 
   const feedbackZone = document.getElementById('feedback-zone');
@@ -279,7 +281,7 @@ Comme un mini-supermarché...	Like a mini supermarket..."></textarea>
     }
     feedback.innerHTML = `<div class="feedback good">Ajout en cours...</div>`;
     try{
-      const created = await apiPost({action:'add', fr, en});
+      const created = await apiGet({action:'add', fr, en});
       sentences.push(created);
       feedback.innerHTML = `<div class="feedback good">Ajoutée ! Elle est disponible dès aujourd'hui en révision.</div>`;
       document.getElementById('fr-input').value='';
@@ -312,7 +314,7 @@ Comme un mini-supermarché...	Like a mini supermarket..."></textarea>
     }
     feedback.innerHTML = `<div class="feedback good">Import en cours...</div>`;
     try{
-      const created = await apiPost({action:'bulkAdd', items});
+      const created = await bulkAddChunked(items);
       sentences = sentences.concat(created);
       feedback.innerHTML = `<div class="feedback good">${created.length} phrase(s) importée(s)${skipped>0 ? `, ${skipped} ligne(s) ignorée(s)` : ''}.</div>`;
       document.getElementById('bulk-input').value = '';
@@ -352,7 +354,7 @@ function renderList(content){
     btn.onclick = async ()=>{
       const id = btn.getAttribute('data-id');
       try{
-        await apiPost({action:'delete', id});
+        await apiGet({action:'delete', id});
         sentences = sentences.filter(s=>s.id!==id);
         renderList(document.getElementById('content'));
       }catch(e){
