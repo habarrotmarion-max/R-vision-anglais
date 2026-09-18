@@ -108,7 +108,7 @@
    👉 COLLEZ ICI L'URL DE VOTRE DÉPLOIEMENT GOOGLE APPS SCRIPT
    (elle se termine par /exec)
    ============================================================ */
-const API_URL = "COLLEZ_VOTRE_URL_ICI";
+const API_URL = "https://script.google.com/macros/s/AKfycbznQnxdhlsX9sui-txJ25mg9UQcY7y58pMPjpGNQLzSHTrDmZHPu9_kNrrisS7sEmr33A/exec";
 
 let sentences = [];
 let currentView = 'review';
@@ -453,6 +453,8 @@ function diffWords(userText, correctText){
   const correctHtml = b.map((w,idx)=> bMatch[idx] ? escapeHtml(w) : `<span class="diff-missing">${escapeHtml(w)}</span>`).join(' ');
   return {userHtml, correctHtml};
 }
+
+function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
@@ -482,3 +484,4 @@ function diffWords(userText, correctText){
 </script>
 </body>
 </html>
+
