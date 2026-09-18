@@ -72,6 +72,10 @@
   .feedback{ padding:14px; border-radius:12px; margin:12px 0; font-size:0.95rem;}
   .feedback.good{ background:#eafaf1; border:1px solid var(--good); color:var(--good-dark); }
   .feedback.bad{ background:#fff0f1; border:1px solid var(--bad); color:var(--bad-dark); }
+  .diff-wrong{ background:#ffd7db; text-decoration:line-through; color:#a93a44; padding:1px 4px; border-radius:4px; }
+  .diff-missing{ background:#d3f3e0; color:var(--good-dark); font-weight:700; padding:1px 4px; border-radius:4px; }
+  .diff-line{ margin:6px 0; line-height:1.6; }
+  .diff-label{ font-size:0.75rem; color:var(--muted); display:block; margin-bottom:2px; }
   .row{ display:flex; gap:10px; margin-top:14px; }
   .stat{ display:flex; justify-content:space-between; color:var(--muted); font-size:0.85rem; margin-bottom:16px;}
   table{ width:100%; border-collapse:collapse; font-size:0.85rem; }
@@ -100,8 +104,11 @@
 </div>
 
 <script>
-
-const API_URL = "https://script.google.com/macros/s/AKfycbznQnxdhlsX9sui-txJ25mg9UQcY7y58pMPjpGNQLzSHTrDmZHPu9_kNrrisS7sEmr33A/exec";
+/* ============================================================
+   👉 COLLEZ ICI L'URL DE VOTRE DÉPLOIEMENT GOOGLE APPS SCRIPT
+   (elle se termine par /exec)
+   ============================================================ */
+const API_URL = "COLLEZ_VOTRE_URL_ICI";
 
 let sentences = [];
 let currentView = 'review';
@@ -250,10 +257,21 @@ async function checkAnswer(item){
   }catch(e){ /* on garde quand même la mise à jour locale */ }
 
   const feedbackZone = document.getElementById('feedback-zone');
+  let bodyHtml;
+  if(isCorrect){
+    bodyHtml = delayMsg;
+  } else {
+    const {userHtml, correctHtml} = diffWords(userAnswer, item.en);
+    bodyHtml = `
+      ❌ Pas tout à fait.
+      <div class="diff-line"><span class="diff-label">Ta réponse :</span>${userHtml || '<em>(vide)</em>'}</div>
+      <div class="diff-line"><span class="diff-label">Réponse attendue :</span>${correctHtml}</div>
+      Cette phrase revient demain.
+    `;
+  }
   feedbackZone.innerHTML = `
     <div class="feedback ${isCorrect?'good':'bad'}">
-      ${isCorrect ? delayMsg :
-        `❌ Pas tout à fait. Réponse attendue : "${escapeHtml(item.en)}"<br>Cette phrase revient demain.`}
+      ${bodyHtml}
     </div>
   `;
   const row = document.querySelector('.row');
@@ -405,7 +423,36 @@ function toCSV(list){
   return '\uFEFF' + lines.join('\r\n');
 }
 
-function escapeHtml(str){
+function normWord(w){
+  return w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^\w']/g,'');
+}
+function diffWords(userText, correctText){
+  const a = userText.split(/\s+/).filter(Boolean);
+  const b = correctText.split(/\s+/).filter(Boolean);
+  const dp = Array(a.length+1).fill(null).map(()=>Array(b.length+1).fill(0));
+  for(let i=1;i<=a.length;i++){
+    for(let j=1;j<=b.length;j++){
+      if(normWord(a[i-1])===normWord(b[j-1])) dp[i][j]=dp[i-1][j-1]+1;
+      else dp[i][j]=Math.max(dp[i-1][j], dp[i][j-1]);
+    }
+  }
+  const aMatch = new Array(a.length).fill(false);
+  const bMatch = new Array(b.length).fill(false);
+  let i=a.length, j=b.length;
+  while(i>0 && j>0){
+    if(normWord(a[i-1])===normWord(b[j-1])){
+      aMatch[i-1]=true; bMatch[j-1]=true;
+      i--; j--;
+    } else if(dp[i-1][j] >= dp[i][j-1]){
+      i--;
+    } else {
+      j--;
+    }
+  }
+  const userHtml = a.map((w,idx)=> aMatch[idx] ? escapeHtml(w) : `<span class="diff-wrong">${escapeHtml(w)}</span>`).join(' ');
+  const correctHtml = b.map((w,idx)=> bMatch[idx] ? escapeHtml(w) : `<span class="diff-missing">${escapeHtml(w)}</span>`).join(' ');
+  return {userHtml, correctHtml};
+}
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
