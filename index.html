@@ -117,6 +117,29 @@ let reviewIndex = 0;
 let currentAnswered = false;
 let categoryFilter = 'all';
 
+function getDailyLimit(){
+  const v = parseInt(localStorage.getItem('dailyLimit'), 10);
+  return (!isNaN(v) && v > 0) ? v : 9999;
+}
+function setDailyLimit(n){
+  localStorage.setItem('dailyLimit', String(n));
+}
+function getReviewedToday(){
+  let data;
+  try{ data = JSON.parse(localStorage.getItem('reviewedToday') || '{}'); }catch(e){ data = {}; }
+  const today = todayStr();
+  if(data.date !== today){
+    data = {date: today, count: 0};
+    localStorage.setItem('reviewedToday', JSON.stringify(data));
+  }
+  return data;
+}
+function incrementReviewedToday(){
+  const data = getReviewedToday();
+  data.count += 1;
+  localStorage.setItem('reviewedToday', JSON.stringify(data));
+}
+
 function getCategories(){
   const set = new Set(sentences.map(s => s.category || 'Général'));
   return [...set].sort((a,b)=>a.localeCompare(b));
@@ -196,7 +219,11 @@ function render(){
 
 function buildReviewQueue(){
   const today = todayStr();
-  reviewQueue = sentences.filter(s => s.nextReview <= today && (categoryFilter==='all' || (s.category||'Général')===categoryFilter));
+  const due = sentences.filter(s => s.nextReview <= today && (categoryFilter==='all' || (s.category||'Général')===categoryFilter));
+  const limit = getDailyLimit();
+  const already = getReviewedToday().count;
+  const remaining = Math.max(0, limit - already);
+  reviewQueue = due.slice(0, remaining);
   reviewIndex = 0;
   currentAnswered = false;
 }
@@ -207,26 +234,55 @@ function categoryFilterHtml(){
   const options = ['all', ...cats].map(c =>
     `<option value="${escapeHtml(c)}" ${categoryFilter===c?'selected':''}>${c==='all' ? 'Toutes les catégories' : escapeHtml(c)}</option>`
   ).join('');
-  return `<select id="cat-filter-select" style="width:100%;padding:10px;border-radius:12px;border:1px solid #e8dff5;background:#fbf8ff;color:var(--text);font-size:0.9rem;margin-bottom:14px;">${options}</select>`;
+  return `<select id="cat-filter-select" style="width:100%;padding:10px;border-radius:12px;border:1px solid #e8dff5;background:#fbf8ff;color:var(--text);font-size:0.9rem;margin-bottom:10px;">${options}</select>`;
+}
+
+function dailyLimitHtml(){
+  const limit = getDailyLimit();
+  return `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:0.85rem;color:var(--muted);">
+      <span>Limite par jour :</span>
+      <input type="number" id="daily-limit-input" min="1" value="${limit >= 9999 ? '' : limit}" placeholder="illimité"
+        style="width:70px;padding:6px 8px;border-radius:8px;border:1px solid #e8dff5;background:#fbf8ff;color:var(--text);">
+    </div>`;
+}
+
+function wireDailyLimit(){
+  const inp = document.getElementById('daily-limit-input');
+  if(inp){
+    inp.onchange = () => {
+      const v = parseInt(inp.value, 10);
+      setDailyLimit((!isNaN(v) && v > 0) ? v : 9999);
+      renderReview(document.getElementById('content'));
+    };
+  }
 }
 
 function renderReview(content){
   buildReviewQueue();
   const filterHtml = categoryFilterHtml();
+  const limitHtml = dailyLimitHtml();
+  const today = todayStr();
+  const dueTotal = sentences.filter(s => s.nextReview <= today && (categoryFilter==='all' || (s.category||'Général')===categoryFilter)).length;
+  const limitReached = reviewQueue.length === 0 && dueTotal > 0;
   if(reviewQueue.length===0){
     const upcoming = sentences.filter(s=>s.nextReview > todayStr() && (categoryFilter==='all' || (s.category||'Général')===categoryFilter))
       .sort((a,b)=>a.nextReview.localeCompare(b.nextReview))[0];
     content.innerHTML = `
       ${filterHtml}
+      ${limitHtml}
       <div class="empty">
-        🎉 Rien à réviser aujourd'hui !<br>
-        ${sentences.length===0 ? "Ajoute ta première phrase depuis l'onglet \"Ajouter\"." :
-          upcoming ? `Prochaine révision le ${upcoming.nextReview}.` : ''}
+        ${limitReached ?
+          `🎯 Tu as atteint ta limite du jour (${getDailyLimit()} phrases) !<br>Il reste ${dueTotal} phrase(s) en attente pour demain, ou augmente ta limite ci-dessus.` :
+          `🎉 Rien à réviser aujourd'hui !<br>
+          ${sentences.length===0 ? "Ajoute ta première phrase depuis l'onglet \"Ajouter\"." :
+            upcoming ? `Prochaine révision le ${upcoming.nextReview}.` : ''}`}
       </div>`;
     wireCatFilter();
+    wireDailyLimit();
     return;
   }
-  renderReviewCard(content, filterHtml);
+  renderReviewCard(content, filterHtml, limitHtml);
 }
 
 function wireCatFilter(){
@@ -239,11 +295,13 @@ function wireCatFilter(){
   }
 }
 
-function renderReviewCard(content, filterHtml){
+function renderReviewCard(content, filterHtml, limitHtml){
   filterHtml = filterHtml !== undefined ? filterHtml : categoryFilterHtml();
+  limitHtml = limitHtml !== undefined ? limitHtml : dailyLimitHtml();
   const item = reviewQueue[reviewIndex];
   content.innerHTML = `
     ${filterHtml}
+    ${limitHtml}
     <div class="stat"><span>Phrase ${reviewIndex+1} / ${reviewQueue.length}</span><span>${escapeHtml(item.category||'Général')}</span></div>
     <div class="fr-sentence">${escapeHtml(item.fr)}</div>
     <input type="text" id="answer-input" placeholder="Écris la traduction en anglais..." autocomplete="off">
@@ -258,6 +316,7 @@ function renderReviewCard(content, filterHtml){
   input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !currentAnswered) checkAnswer(item); });
   document.getElementById('check-btn').onclick = ()=>checkAnswer(item);
   wireCatFilter();
+  wireDailyLimit();
 }
 
 async function checkAnswer(item){
@@ -283,6 +342,7 @@ async function checkAnswer(item){
     item.nextReview = addDays(todayStr(), 1);
   }
   item.lastReviewed = todayStr();
+  incrementReviewedToday();
 
   try{
     await apiGet({action:'update', id:item.id, nextReview:item.nextReview, correctStreak:item.correctStreak, lastReviewed:item.lastReviewed});
@@ -406,7 +466,12 @@ function renderList(content){
     <tr>
       <td>${escapeHtml(s.fr)}${(s.correctStreak||0)>=5 ? ' <span class="badge mastered">maîtrisée</span>' : ''}</td>
       <td>${escapeHtml(s.en)}</td>
-      <td><span class="badge due" style="background:#efe7fc;">${escapeHtml(s.category||'Général')}</span></td>
+      <td>
+        <select class="cat-edit" data-id="${s.id}" style="font-size:0.75rem;padding:3px 6px;border-radius:6px;border:1px solid #e8dff5;background:#efe7fc;color:var(--accent-dark);">
+          ${cats.map(c=>`<option value="${escapeHtml(c)}" ${c===(s.category||'Général')?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+          <option value="__new__">+ Nouvelle catégorie…</option>
+        </select>
+      </td>
       <td>${s.nextReview<=today ? "<span class=\"badge due\">Aujourd'hui</span>" : s.nextReview}</td>
       <td><button class="del" data-id="${s.id}">✕</button></td>
     </tr>
@@ -434,6 +499,27 @@ function renderList(content){
       renderList(document.getElementById('content'));
     };
   }
+  content.querySelectorAll('.cat-edit').forEach(sel=>{
+    sel.onchange = async ()=>{
+      const id = sel.getAttribute('data-id');
+      let newCat = sel.value;
+      if(newCat === '__new__'){
+        newCat = (prompt('Nom de la nouvelle catégorie :') || '').trim();
+        if(!newCat){
+          renderList(document.getElementById('content'));
+          return;
+        }
+      }
+      try{
+        await apiGet({action:'update', id, category: newCat});
+        const s = sentences.find(x=>x.id===id);
+        if(s) s.category = newCat;
+        renderList(document.getElementById('content'));
+      }catch(e){
+        alert("Erreur de connexion, la catégorie n'a pas été changée.");
+      }
+    };
+  });
   content.querySelectorAll('.del').forEach(btn=>{
     btn.onclick = async ()=>{
       const id = btn.getAttribute('data-id');
