@@ -115,6 +115,12 @@ let currentView = 'review';
 let reviewQueue = [];
 let reviewIndex = 0;
 let currentAnswered = false;
+let categoryFilter = 'all';
+
+function getCategories(){
+  const set = new Set(sentences.map(s => s.category || 'Général'));
+  return [...set].sort((a,b)=>a.localeCompare(b));
+}
 
 function todayStr(){
   const d = new Date();
@@ -190,33 +196,58 @@ function render(){
 
 function buildReviewQueue(){
   const today = todayStr();
-  reviewQueue = sentences.filter(s => s.nextReview <= today);
+  reviewQueue = sentences.filter(s => s.nextReview <= today && (categoryFilter==='all' || (s.category||'Général')===categoryFilter));
   reviewIndex = 0;
   currentAnswered = false;
 }
 
+function categoryFilterHtml(){
+  const cats = getCategories();
+  if(cats.length <= 1) return '';
+  const options = ['all', ...cats].map(c =>
+    `<option value="${escapeHtml(c)}" ${categoryFilter===c?'selected':''}>${c==='all' ? 'Toutes les catégories' : escapeHtml(c)}</option>`
+  ).join('');
+  return `<select id="cat-filter-select" style="width:100%;padding:10px;border-radius:12px;border:1px solid #e8dff5;background:#fbf8ff;color:var(--text);font-size:0.9rem;margin-bottom:14px;">${options}</select>`;
+}
+
 function renderReview(content){
   buildReviewQueue();
+  const filterHtml = categoryFilterHtml();
   if(reviewQueue.length===0){
-    const upcoming = sentences.filter(s=>s.nextReview > todayStr())
+    const upcoming = sentences.filter(s=>s.nextReview > todayStr() && (categoryFilter==='all' || (s.category||'Général')===categoryFilter))
       .sort((a,b)=>a.nextReview.localeCompare(b.nextReview))[0];
     content.innerHTML = `
+      ${filterHtml}
       <div class="empty">
         🎉 Rien à réviser aujourd'hui !<br>
         ${sentences.length===0 ? "Ajoute ta première phrase depuis l'onglet \"Ajouter\"." :
           upcoming ? `Prochaine révision le ${upcoming.nextReview}.` : ''}
       </div>`;
+    wireCatFilter();
     return;
   }
-  renderReviewCard(content);
+  renderReviewCard(content, filterHtml);
 }
 
-function renderReviewCard(content){
+function wireCatFilter(){
+  const sel = document.getElementById('cat-filter-select');
+  if(sel){
+    sel.onchange = () => {
+      categoryFilter = sel.value;
+      renderReview(document.getElementById('content'));
+    };
+  }
+}
+
+function renderReviewCard(content, filterHtml){
+  filterHtml = filterHtml !== undefined ? filterHtml : categoryFilterHtml();
   const item = reviewQueue[reviewIndex];
   content.innerHTML = `
-    <div class="stat"><span>Phrase ${reviewIndex+1} / ${reviewQueue.length}</span><span>À réviser aujourd'hui</span></div>
+    ${filterHtml}
+    <div class="stat"><span>Phrase ${reviewIndex+1} / ${reviewQueue.length}</span><span>${escapeHtml(item.category||'Général')}</span></div>
     <div class="fr-sentence">${escapeHtml(item.fr)}</div>
     <input type="text" id="answer-input" placeholder="Écris la traduction en anglais..." autocomplete="off">
+
     <div id="feedback-zone"></div>
     <div class="row">
       <button class="primary" id="check-btn">Vérifier</button>
@@ -226,6 +257,7 @@ function renderReviewCard(content){
   input.focus();
   input.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !currentAnswered) checkAnswer(item); });
   document.getElementById('check-btn').onclick = ()=>checkAnswer(item);
+  wireCatFilter();
 }
 
 async function checkAnswer(item){
@@ -288,24 +320,28 @@ async function checkAnswer(item){
 }
 
 function renderAdd(content){
+  const cats = getCategories();
   content.innerHTML = `
     <div class="stat"><span>Nouvelle phrase</span><span>${sentences.length} au total</span></div>
     <input type="text" id="fr-input" placeholder="Phrase en français">
     <input type="text" id="en-input" placeholder="Traduction correcte en anglais">
+    <input type="text" id="cat-input" list="cat-list" placeholder="Catégorie (ex : anglais travail, chansons, grammaire...)">
+    <datalist id="cat-list">${cats.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist>
     <div id="add-feedback"></div>
     <button class="primary" id="add-btn">Ajouter</button>
 
     <hr>
     <h3>Import en masse</h3>
-    <p class="hint">Une phrase par ligne : français, une tabulation (ou " | "), puis l'anglais.</p>
-    <textarea id="bulk-input" rows="6" placeholder="Il y avait beaucoup d'activités.	There were many activities.
-Comme un mini-supermarché...	Like a mini supermarket..."></textarea>
+    <p class="hint">Une phrase par ligne : français, une tabulation (ou " | "), puis l'anglais, et en option une 3ème colonne pour la catégorie.</p>
+    <textarea id="bulk-input" rows="6" placeholder="Il y avait beaucoup d'activités.	There were many activities.	anglais quotidien
+Comme un mini-supermarché...	Like a mini supermarket...	anglais quotidien"></textarea>
     <div id="bulk-feedback"></div>
     <button class="primary" id="bulk-btn">Importer toutes les phrases</button>
   `;
   document.getElementById('add-btn').onclick = async ()=>{
     const fr = document.getElementById('fr-input').value.trim();
     const en = document.getElementById('en-input').value.trim();
+    const category = document.getElementById('cat-input').value.trim() || 'Général';
     const feedback = document.getElementById('add-feedback');
     if(!fr || !en){
       feedback.innerHTML = `<div class="feedback bad">Merci de remplir les deux champs.</div>`;
@@ -313,7 +349,7 @@ Comme un mini-supermarché...	Like a mini supermarket..."></textarea>
     }
     feedback.innerHTML = `<div class="feedback good">Ajout en cours...</div>`;
     try{
-      const created = await apiGet({action:'add', fr, en});
+      const created = await apiGet({action:'add', fr, en, category});
       sentences.push(created);
       feedback.innerHTML = `<div class="feedback good">Ajoutée ! Elle est disponible dès aujourd'hui en révision.</div>`;
       document.getElementById('fr-input').value='';
@@ -335,10 +371,11 @@ Comme un mini-supermarché...	Like a mini supermarket..."></textarea>
       if(line.includes('\t')) parts = line.split('\t');
       else if(line.includes(' | ')) parts = line.split(' | ');
       else { skipped++; return; }
-      const fr = parts[0].trim();
-      const en = parts.slice(1).join(' ').trim();
+      const fr = (parts[0]||'').trim();
+      const en = (parts[1]||'').trim();
+      const category = (parts[2]||'').trim() || 'Général';
       if(!fr || !en){ skipped++; return; }
-      items.push({fr, en});
+      items.push({fr, en, category});
     });
     if(items.length===0){
       feedback.innerHTML = `<div class="feedback bad">Aucune ligne reconnue. Vérifie le format.</div>`;
@@ -358,20 +395,28 @@ Comme un mini-supermarché...	Like a mini supermarket..."></textarea>
 
 function renderList(content){
   const today = todayStr();
-  const sorted = [...sentences].sort((a,b)=>a.nextReview.localeCompare(b.nextReview));
+  const cats = getCategories();
+  const listFilter = categoryFilter;
+  const filtered = sentences.filter(s => listFilter==='all' || (s.category||'Général')===listFilter);
+  const sorted = [...filtered].sort((a,b)=>a.nextReview.localeCompare(b.nextReview));
+  const filterOptions = ['all', ...cats].map(c =>
+    `<option value="${escapeHtml(c)}" ${listFilter===c?'selected':''}>${c==='all' ? 'Toutes les catégories' : escapeHtml(c)}</option>`
+  ).join('');
   const rows = sorted.map(s=>`
     <tr>
       <td>${escapeHtml(s.fr)}${(s.correctStreak||0)>=5 ? ' <span class="badge mastered">maîtrisée</span>' : ''}</td>
       <td>${escapeHtml(s.en)}</td>
+      <td><span class="badge due" style="background:#efe7fc;">${escapeHtml(s.category||'Général')}</span></td>
       <td>${s.nextReview<=today ? "<span class=\"badge due\">Aujourd'hui</span>" : s.nextReview}</td>
       <td><button class="del" data-id="${s.id}">✕</button></td>
     </tr>
   `).join('');
   content.innerHTML = `
-    ${sentences.length===0 ? '<div class="empty">Aucune phrase enregistrée pour le moment.</div>' : `
-    <div class="stat"><span>${sentences.length} phrase(s)</span><span>${sentences.filter(s=>s.nextReview<=today).length} à réviser aujourd'hui</span></div>
+    ${cats.length > 1 ? `<select id="cat-filter-select-list" style="width:100%;padding:10px;border-radius:12px;border:1px solid #e8dff5;background:#fbf8ff;color:var(--text);font-size:0.9rem;margin-bottom:14px;">${filterOptions}</select>` : ''}
+    ${filtered.length===0 ? '<div class="empty">Aucune phrase dans cette catégorie.</div>' : `
+    <div class="stat"><span>${filtered.length} phrase(s)</span><span>${filtered.filter(s=>s.nextReview<=today).length} à réviser aujourd'hui</span></div>
     <table>
-      <thead><tr><th>Français</th><th>Anglais</th><th>Prochaine révision</th><th></th></tr></thead>
+      <thead><tr><th>Français</th><th>Anglais</th><th>Catégorie</th><th>Prochaine révision</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     `}
@@ -382,6 +427,13 @@ function renderList(content){
       <button class="secondary" id="export-btn">📥 Exporter en Excel (.csv)</button>
     </div>
   `;
+  const listSel = document.getElementById('cat-filter-select-list');
+  if(listSel){
+    listSel.onchange = () => {
+      categoryFilter = listSel.value;
+      renderList(document.getElementById('content'));
+    };
+  }
   content.querySelectorAll('.del').forEach(btn=>{
     btn.onclick = async ()=>{
       const id = btn.getAttribute('data-id');
@@ -415,10 +467,10 @@ function csvEscape(v){
   return '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
 }
 function toCSV(list){
-  const header = ['Français','Anglais','ProchaineRevision','SerieCorrecte','DerniereRevision','DateAjout'];
+  const header = ['Français','Anglais','Catégorie','ProchaineRevision','SerieCorrecte','DerniereRevision','DateAjout'];
   const lines = [header.map(csvEscape).join(';')];
   list.forEach(s=>{
-    lines.push([s.fr, s.en, s.nextReview, s.correctStreak||0, s.lastReviewed||'', s.created||''].map(csvEscape).join(';'));
+    lines.push([s.fr, s.en, s.category||'Général', s.nextReview, s.correctStreak||0, s.lastReviewed||'', s.created||''].map(csvEscape).join(';'));
   });
   return '\uFEFF' + lines.join('\r\n');
 }
@@ -484,4 +536,3 @@ function escapeHtml(str){
 </script>
 </body>
 </html>
-
